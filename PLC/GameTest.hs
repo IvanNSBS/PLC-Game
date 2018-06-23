@@ -4,21 +4,25 @@ module Main where
     import Graphics.Rendering.OpenGL (GLdouble)
 
     type PlayerCharacter = GameObject ()
+    type PlayerBullet = GameObject ()
     type PlayerAction a = IOGame GameAttribute () () () a
     data GameAttribute = Score Int
+    data BulletAttribute = Ammo Int
 
     --Player Settings
     moveSpeed = 5
     jumpVelocity = 15
+    pSqSize = 12
     jumpPressed = False
+    maxAmmo = 999
 
     --World Settings
     gravityScale = 10
     frameTime = 16
 
     --UI Settings
-    width = 400
-    height = 400
+    width = 840
+    height = 600
     w = fromIntegral width :: GLdouble
     h = fromIntegral height :: GLdouble
 
@@ -27,21 +31,42 @@ module Main where
       let winConfig = ((100,80),(width,height),"A brief example!")
           bmpList = [("tex.bmp", Nothing)]
           gameMap = textureMap 0 30 30 w h
-          player     = objectGroup "playerGroup"  [createPlayer]
+          player  = objectGroup "playerGroup"  [createPlayer]
+          bullet  = objectGroup "bulletGroup"  [createBullets]
           initScore = Score 0
           input = [
             (SpecialKey KeyRight,  StillDown, movePlayerRight)
             ,(SpecialKey KeyLeft,  StillDown, movePlayerLeft)
             ,(SpecialKey KeyUp,    Press, playerJump)
+            ,(Char 'c',            Press, spawnBullet)
             ,(Char 'q',            Press,     \_ _ -> funExit)
             ]
-      funInit winConfig gameMap [player] () initScore input gameCycle (Timer frameTime) bmpList
+      funInit winConfig gameMap [player,bullet] () initScore input gameCycle (Timer frameTime) bmpList
 
     createPlayer :: PlayerCharacter
     createPlayer = 
-        let playerBounds = [(-6,-6),(6,-6),(6,6),(-6,6)]
+        let playerBounds = [(-pSqSize,-pSqSize),(pSqSize,-pSqSize),(pSqSize,pSqSize),(-pSqSize,pSqSize)]
             playerPoly   = Basic (Polyg playerBounds 1.0 0.0 0.0 Filled)
         in object "player" playerPoly False (w/2, h) (0,0) ()
+
+    createBullets :: PlayerBullet
+    createBullets =
+      let bulletPic = Basic (Circle 3.0 1.0 1.0 0 Filled) 
+      in object "bullet" bulletPic True (w/2,h/2) (4,0) ()
+
+    spawnBullet :: Modifiers -> Position -> IOGame GameAttribute () () () ()
+    spawnBullet _ _ = do
+      bullet <- findObject "bullet" "bulletGroup"
+      player <- findObject "player" "playerGroup"
+      (pX, pY) <- getObjectPosition player
+      (sX, sY) <- getObjectSize player
+      setObjectAsleep False bullet
+      setObjectPosition (pX+sX, pY) bullet
+
+    {-createAsleepBullets :: Int -> Int -> ObjectPicture -> [PlayerBullet]
+    createAsleepBullets tMin tMax pic
+      | (tMin > tMax) = []
+      | otherwise = (object ("bullet" ++ (show tMin)) pic True (0,0) (0,0) (Ammo 0)):(createAsleepBullets (tMin + 1) tMax pic)-}
         
     movePlayerRight :: Modifiers -> Position -> IOGame GameAttribute () () () ()
     movePlayerRight _ _ = do
