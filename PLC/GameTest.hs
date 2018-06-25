@@ -13,6 +13,7 @@ module Main where
     moveSpeed = 5
     jumpVelocity = 15
     pSqSize = 12
+    bulletSpeed = 15
     jumpPressed = False
     maxAmmo = 999
 
@@ -52,9 +53,9 @@ module Main where
     createBullets :: PlayerBullet
     createBullets =
       let bulletPic = Basic (Circle 3.0 1.0 1.0 0 Filled) 
-      in object "bullet" bulletPic True (w/2,h/2) (4,0) ()
+      in object "bullet" bulletPic True (w/2,h/2) (bulletSpeed,0) ()
 
-    spawnBullet :: Modifiers -> Position -> IOGame GameAttribute () () () ()
+    spawnBullet :: Modifiers -> Position -> PlayerAction ()
     spawnBullet _ _ = do
       bullet <- findObject "bullet" "bulletGroup"
       player <- findObject "player" "playerGroup"
@@ -73,6 +74,9 @@ module Main where
      obj     <- findObject "player" "playerGroup"
      (pX,pY) <- getObjectPosition obj
      (sX,_)  <- getObjectSize obj
+     bullet <- findObject "bullet" "bulletGroup"
+     setObjectSpeed(bulletSpeed, 0) bullet
+     setObjectPosition (pX+sX, pY) bullet
      if (pX + (sX/2) + 5 <= w)
       then (setObjectPosition ((pX + moveSpeed),pY) obj)
       else (setObjectPosition ((w - (sX/2)),pY) obj)
@@ -82,6 +86,9 @@ module Main where
       obj <- findObject "player" "playerGroup"
       (pX,pY) <- getObjectPosition obj
       (sX,_)  <- getObjectSize obj
+      bullet <- findObject "bullet" "bulletGroup"
+      setObjectSpeed(-bulletSpeed, 0) bullet
+      setObjectPosition (pX-sX, pY) bullet
       if (pX - (sX/2) - moveSpeed >= 0)
        then (setObjectPosition ((pX - 5),pY) obj)
        else (setObjectPosition (sX/2,pY) obj)
