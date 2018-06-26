@@ -6,8 +6,10 @@ module Main where
     type PlayerCharacter = GameObject ()
     type PlayerBullet = GameObject ()
     type PlayerAction a = IOGame GameAttribute () () () a
-    data GameAttribute = Score Int
-    data BulletAttribute = Ammo Int
+    
+    
+    --data GameAttribute = Score Int
+    data GameAttribute = Ammo Int
 
     --Player Settings
     moveSpeed = 5
@@ -33,8 +35,8 @@ module Main where
           bmpList = [("tex.bmp", Nothing)]
           gameMap = textureMap 0 30 30 w h
           player  = objectGroup "playerGroup"  [createPlayer]
-          bullet  = objectGroup "bulletGroup"  [createBullets]
-          initScore = Score 0
+          bullet  = objectGroup "bulletGroup"  createBullets
+          initAmmo = Ammo 999
           input = [
             (SpecialKey KeyRight,  StillDown, movePlayerRight)
             ,(SpecialKey KeyLeft,  StillDown, movePlayerLeft)
@@ -42,7 +44,7 @@ module Main where
             ,(Char 'c',            Press, spawnBullet)
             ,(Char 'q',            Press,     \_ _ -> funExit)
             ]
-      funInit winConfig gameMap [player,bullet] () initScore input gameCycle (Timer frameTime) bmpList
+      funInit winConfig gameMap [player,bullet] () initAmmo input gameCycle (Timer frameTime) bmpList
 
     createPlayer :: PlayerCharacter
     createPlayer = 
@@ -50,33 +52,36 @@ module Main where
             playerPoly   = Basic (Polyg playerBounds 1.0 0.0 0.0 Filled)
         in object "player" playerPoly False (w/2, h) (0,0) ()
 
-    createBullets :: PlayerBullet
+    createBullets :: [PlayerBullet]
     createBullets =
       let bulletPic = Basic (Circle 3.0 1.0 1.0 0 Filled) 
-      in object "bullet" bulletPic True (w/2,h/2) (bulletSpeed,0) ()
+      in ( (createAsleepBullets 1 maxAmmo bulletPic))
 
     spawnBullet :: Modifiers -> Position -> PlayerAction ()
     spawnBullet _ _ = do
-      bullet <- findObject "bullet" "bulletGroup"
-      player <- findObject "player" "playerGroup"
-      (pX, pY) <- getObjectPosition player
-      (sX, sY) <- getObjectSize player
-      setObjectAsleep False bullet
-      setObjectPosition (pX+sX, pY) bullet
+      (Ammo a) <- getGameAttribute
+      if(a > 0)
+        then( do
+        bullet <- findObject ("bullet" ++ (show a)) "bulletGroup"
+        player <- findObject "player" "playerGroup"
+        (pX, pY) <- getObjectPosition player
+        (sX, sY) <- getObjectSize player
+        setObjectAsleep False bullet
+        setObjectPosition (pX+sX, pY) bullet
+        setGameAttribute(Ammo (a-1))
+        )
+        else return()
 
-    {-createAsleepBullets :: Int -> Int -> ObjectPicture -> [PlayerBullet]
+    createAsleepBullets :: Int -> Int -> ObjectPicture -> [PlayerBullet]
     createAsleepBullets tMin tMax pic
       | (tMin > tMax) = []
-      | otherwise = (object ("bullet" ++ (show tMin)) pic True (0,0) (0,0) (Ammo 0)):(createAsleepBullets (tMin + 1) tMax pic)-}
+      | otherwise = (object ("bullet" ++ (show tMin)) pic True (0,0) (bulletSpeed,0) ()):(createAsleepBullets (tMin + 1) tMax pic)
         
     movePlayerRight :: Modifiers -> Position -> IOGame GameAttribute () () () ()
     movePlayerRight _ _ = do
      obj     <- findObject "player" "playerGroup"
      (pX,pY) <- getObjectPosition obj
      (sX,_)  <- getObjectSize obj
-     bullet <- findObject "bullet" "bulletGroup"
-     setObjectSpeed(bulletSpeed, 0) bullet
-     setObjectPosition (pX+sX, pY) bullet
      if (pX + (sX/2) + 5 <= w)
       then (setObjectPosition ((pX + moveSpeed),pY) obj)
       else (setObjectPosition ((w - (sX/2)),pY) obj)
@@ -86,9 +91,6 @@ module Main where
       obj <- findObject "player" "playerGroup"
       (pX,pY) <- getObjectPosition obj
       (sX,_)  <- getObjectSize obj
-      bullet <- findObject "bullet" "bulletGroup"
-      setObjectSpeed(-bulletSpeed, 0) bullet
-      setObjectPosition (pX-sX, pY) bullet
       if (pX - (sX/2) - moveSpeed >= 0)
        then (setObjectPosition ((pX - 5),pY) obj)
        else (setObjectPosition (sX/2,pY) obj)
@@ -120,7 +122,10 @@ module Main where
       when(col4) (do 
         setObjectPosition (pX, sY/2) player
         setObjectSpeed (vX, 0) player)
-      showFPS TimesRoman24 (30,0) 1.0 0.0 0.0
+      showFPS TimesRoman24 (w-24, h-28) 1.0 0.0 0.0
+      (Ammo a) <- getGameAttribute
+      printOnScreen ("Ammo Remaining: " ++ show a) TimesRoman24 (0,0) 1.0 1.0 1.0
       if(not jumpPressed)
        then (setObjectSpeed ((0.0, -0.5+vY)) player)
        else (setObjectSpeed (vX,vY) player)
+      
