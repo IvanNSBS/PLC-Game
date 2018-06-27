@@ -86,11 +86,10 @@ module Main where
         setObjectAsleep False bullet --Spawna efetivamente a bala no mapa
         if(pUp)
           then(do 
-              setObjectPosition (pX, pY+sY) bullet --Passa os parametros necessários como posição e velocidade.
-              setObjectSpeed (0,bulletSpeed) bullet
-               )
+              setObjectPosition (pX, pY) bullet --Passa os parametros necessários como posição e velocidade.
+              setObjectSpeed (0,bulletSpeed) bullet)
           else( do
-               setObjectPosition (pX+(sX*t), pY) bullet --Passa os parametros necessários como posição e velocidade.
+               setObjectPosition (pX+(2*t), pY) bullet --Passa os parametros necessários como posição e velocidade.
                setObjectSpeed (bulletSpeed*t,0) bullet)
         setGameAttribute(GA (a-1) t pUp b)-- Diminui a quantidade de balas disponiveis
         )
@@ -146,8 +145,6 @@ module Main where
         else return()
 
 
-
-        
 
     ---Space Invaders
     createInvaders :: SpaceInvader
