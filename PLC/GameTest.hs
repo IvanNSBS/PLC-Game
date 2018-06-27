@@ -3,12 +3,17 @@ module Main where
     import Graphics.UI.Fungen
     import Graphics.Rendering.OpenGL (GLdouble)
 
+    --Player
     type PlayerCharacter = GameObject ()
     type PlayerBullet = GameObject ()
     type PlayerAction a = IOGame GameAttribute () () () a
+
+    --SpaceInvader
+    type SpaceInvader = GameObject ()
+    type InvaderAction a = IOGame GameAttribute () () () a
   
-    --Ammo TravelDirection JumpPressed
-    data GameAttribute = GA Int Double Bool
+    --Ammo TravelDirection PressingUp JumpPressed
+    data GameAttribute = GA Int Double Bool Bool
 
     --Player Settings
     moveSpeed = 5
@@ -34,22 +39,25 @@ module Main where
           gameMap = textureMap 0 30 30 w h
           player  = objectGroup "playerGroup"  [createPlayer]
           bullet  = objectGroup "bulletGroup"  createBullets
-          initAmmo = GA maxAmmo 1.0 False
+          invaders= objectGroup "invaderGroup" [createInvaders]
+          initAmmo = GA maxAmmo 1.0 False False
           input = [
             (SpecialKey KeyRight,  StillDown, movePlayerRight)
             ,(SpecialKey KeyLeft,  StillDown, movePlayerLeft)
+            ,(SpecialKey KeyUp,    Press, toggleUpPressed)
+            ,(SpecialKey KeyUp,    Release, toggleUpPressed)
             ,(Char ' ',            Press, playerJump)
             ,(Char 'c',            Press, spawnBullet)
             ,(Char 'q',            Press,     \_ _ -> funExit)
             ]
-      funInit winConfig gameMap [player,bullet] () initAmmo input gameCycle (Timer frameTime) bmpList
+      funInit winConfig gameMap [player,bullet,invaders] () initAmmo input gameCycle (Timer frameTime) bmpList
 
     --Cria o player. Neste momento o player é apenas um quadrado vermelho
     createPlayer :: PlayerCharacter
     createPlayer = 
         let playerBounds = [(-pSqSize,-pSqSize),(pSqSize,-pSqSize),(pSqSize,pSqSize),(-pSqSize,pSqSize)] -- 'area' do quadrado
             playerPoly   = Basic (Polyg playerBounds 1.0 0.0 0.0 Filled) -- gera a forma do player
-        in object "player" playerPoly False (w/2, h) (0,0) () -- inicializa o player com esta forma gerada
+        in object "player" playerPoly False (w/2, pSqSize) (0,0) () -- inicializa o player com esta forma gerada
 
     --Cria as munições do player. Retorna uma lista com todas as balas disponíveis para o jogador
     createBullets :: [PlayerBullet]
@@ -68,7 +76,7 @@ module Main where
     --Dispara as balas
     spawnBullet :: Modifiers -> Position -> PlayerAction ()
     spawnBullet _ _ = do
-      (GA a t b) <- getGameAttribute
+      (GA a t pUp b) <- getGameAttribute
       if(a > 0)
         then( do
         bullet <- findObject ("bullet" ++ (show a)) "bulletGroup" --Encontra a última bala da lista
@@ -76,9 +84,15 @@ module Main where
         (pX, pY) <- getObjectPosition player
         (sX, sY) <- getObjectSize player --Coleta dados do jogador
         setObjectAsleep False bullet --Spawna efetivamente a bala no mapa
-        setObjectPosition (pX+(sX*t), pY) bullet --Passa os parametros necessários como posição e velocidade.
-        setObjectSpeed (bulletSpeed*t,0) bullet
-        setGameAttribute(GA (a-1) t b)-- Diminui a quantidade de balas disponiveis
+        if(pUp)
+          then(do 
+              setObjectPosition (pX, pY+sY) bullet --Passa os parametros necessários como posição e velocidade.
+              setObjectSpeed (0,bulletSpeed) bullet
+               )
+          else( do
+               setObjectPosition (pX+(sX*t), pY) bullet --Passa os parametros necessários como posição e velocidade.
+               setObjectSpeed (bulletSpeed*t,0) bullet)
+        setGameAttribute(GA (a-1) t pUp b)-- Diminui a quantidade de balas disponiveis
         )
         else return()
         
@@ -90,8 +104,8 @@ module Main where
      obj     <- findObject "player" "playerGroup"
      (pX,pY) <- getObjectPosition obj
      (sX,_)  <- getObjectSize obj
-     (GA a t b) <- getGameAttribute
-     setGameAttribute(GA a 1.0 b)--atualiza a travel direction para -1
+     (GA a t pUp b) <- getGameAttribute
+     setGameAttribute(GA a 1.0 pUp b)--atualiza a travel direction para -1
      if (pX + (sX/2) + 5 <= w)
       then (setObjectPosition ((pX + moveSpeed),pY) obj)
       else (setObjectPosition ((w - (sX/2)),pY) obj)
@@ -104,50 +118,81 @@ module Main where
       obj <- findObject "player" "playerGroup"
       (pX,pY) <- getObjectPosition obj
       (sX,_)  <- getObjectSize obj
-      (GA a t b) <- getGameAttribute
-      setGameAttribute(GA a (-1.0) b)--atualiza a travel direction para -1
+      (GA a t pUp b) <- getGameAttribute
+      setGameAttribute(GA a (-1.0) pUp b)--atualiza a travel direction para -1
       if (pX - (sX/2) - moveSpeed >= 0)
        then (setObjectPosition ((pX - 5),pY) obj)
        else (setObjectPosition (sX/2,pY) obj)
 
-    movePlayerUp :: Modifiers -> Position -> IOGame GameAttribute () () () ()
-    movePlayerUp _ _ = do
-      obj <- findObject "player" "playerGroup"
-      (pX,pY) <- getObjectPosition obj
-      (_,sY)  <- getObjectSize obj
-      if (pY + (sY/2) + moveSpeed <= h)
-       then (setObjectPosition (pX, (pY+jumpVelocity) ) obj)
-       else (setObjectPosition (pX, (h - (sY/2)) ) obj)
+    toggleUpPressed :: Modifiers -> Position -> IOGame GameAttribute () () () ()
+    toggleUpPressed _ _ = do
+      (GA a t pUp b) <- getGameAttribute
+      if(pUp)
+        then ( setGameAttribute(GA a t False b) )
+        else ( setGameAttribute(GA a t True b) )
+    
       
     --Dá velocidade vertical ao jogador caso ele nao esteja pulando
     playerJump :: Modifiers -> Position -> IOGame GameAttribute () () () ()
     playerJump _ _ = do
        player <- findObject "player" "playerGroup"
        (vX, vY) <- getObjectSpeed player
-       (GA a t b) <- getGameAttribute
+       (GA a t pUp b) <- getGameAttribute
        if(not b)
         then (do 
           setObjectSpeed(vX, jumpVelocity) player
-          setGameAttribute(GA a t True)--Booleano diz que o jogador está atualmente pulando
+          setGameAttribute(GA a t pUp True)--Booleano diz que o jogador está atualmente pulando
           )
         else return()
 
+
+
+        
+
+    ---Space Invaders
+    createInvaders :: SpaceInvader
+    createInvaders = 
+        let invaderBounds = [(-pSqSize,-pSqSize),(pSqSize,-pSqSize),(pSqSize,pSqSize),(-pSqSize,pSqSize)] -- 'area' do quadrado
+            invaderPoly   = Basic (Polyg invaderBounds 1.0 0.0 0.0 Filled) -- gera a forma do player
+        in object "invader" invaderPoly False (w/2, (h/3)-(pSqSize*3)) (5,0) () -- inicializa o player com esta forma gerada
+
+    moveInvaders :: InvaderAction ()
+    moveInvaders = do
+       invader <- findObject "invader" "invaderGroup"
+       (pX,pY) <- getObjectPosition invader
+       if(pX == (w/2 + 100) )
+        then reverseXSpeed invader
+        else if (pX == w/2 - 100)
+          then reverseXSpeed invader
+        else return()
+
+
+
     gameCycle :: PlayerAction ()
     gameCycle = do 
+      --Gets
       player <- findObject "player" "playerGroup"
+      invader <- findObject "invader" "invaderGroup"
+      bullets <- getObjectsFromGroup "bulletGroup"
       (vX,vY) <- getObjectSpeed player
       (pX,pY) <- getObjectPosition player
       (_,sY)  <- getObjectSize player
-      (GA a t b) <- getGameAttribute
+      (GA a t pUp b) <- getGameAttribute
+      moveInvaders
       col4 <- objectBottomMapCollision player
+      col5 <- objectListObjectCollision bullets invader
+      col6 <- objectBottomMapCollision invader
+      --Collisions
       when(col4) (do 
         setObjectPosition (pX, sY/2) player
         setObjectSpeed (vX, 0) player
         if(b)
-         then(setGameAttribute(GA a t False))--Caso o jogador pouse no chão, significa que o pulo acabou. Atualizar o booleano
+         then(setGameAttribute(GA a t pUp False))--Caso o jogador pouse no chão, significa que o pulo acabou. Atualizar o booleano
          else(return())
         )
       when(not col4)( (setObjectSpeed ( (0.0, vY-(gravityScale/16) ) ) player) )--Caso não esteja pisando no chão, simular gravidade.
+      when(col5) (setObjectAsleep True invader)
+      when(col6) (funExit)
       showFPS TimesRoman24 (w-24, h-28) 1.0 0.0 0.0
       printOnScreen ("Ammo Remaining: " ++ show a) TimesRoman24 (0,0) 1.0 1.0 1.0
 
