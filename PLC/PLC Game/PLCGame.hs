@@ -11,6 +11,8 @@ module Main where
     --SpaceInvader
     type SpaceInvader = GameObject ()
     type InvaderAction a = IOGame GameAttribute () () () a
+    rows = 1
+    columns = 5
   
     --Ammo TravelDirection PressingUp JumpPressed
     data GameAttribute = GA Int Double Bool Bool
@@ -20,7 +22,7 @@ module Main where
     jumpVelocity = 15
     pSqSize = 12
     bulletSpeed = 15
-    maxAmmo = 999
+    maxAmmo = 100
 
     --World Settings
     gravityScale = 10
@@ -35,11 +37,11 @@ module Main where
     main :: IO ()
     main = do
       let winConfig = ((100,80),(width,height),"A brief example!")
-          bmpList = [("tex.bmp", Nothing)]
-          gameMap = textureMap 0 30 30 w h
-          player  = objectGroup "playerGroup"  [createPlayer]
-          bullet  = objectGroup "bulletGroup"  createBullets
-          invaders= objectGroup "invaderGroup" [createInvaders]
+          bmpList  = [("tex.bmp", Nothing)]
+          gameMap  = textureMap 0 30 30 w h
+          player   = objectGroup "playerGroup"  [createPlayer]
+          bullet   = objectGroup "bulletGroup"  createBullets
+          invaders = objectGroup "invaderGroup" initInvaders
           initAmmo = GA maxAmmo 1.0 False False
           input = [
             (SpecialKey KeyRight,  StillDown, movePlayerRight)
@@ -75,7 +77,7 @@ module Main where
 
     --Dispara as balas
     spawnBullet :: Modifiers -> Position -> PlayerAction ()
-    spawnBullet _ _ = do
+    spawnBullet _ _= do
       (GA a t pUp b) <- getGameAttribute
       if(a > 0)
         then( do
@@ -94,7 +96,30 @@ module Main where
         setGameAttribute(GA (a-1) t pUp b)-- Diminui a quantidade de balas disponiveis
         )
         else return()
+
         
+    checkBulletCollision :: PlayerBullet -> PlayerAction ()
+    checkBulletCollision bullet = do
+      invader <- findObject "invader" "invaderGroup"
+      col <- objectsCollision bullet invader
+      if(col)
+        then(do 
+             setObjectAsleep True invader
+             setObjectAsleep True bullet)
+        else return ()
+    
+    --Precisa de threads
+    checkBulletCollisionAll :: Int -> Int -> PlayerAction ()
+    checkBulletCollisionAll cur goal = do
+      bullet <- findObject ("bullet" ++ (show (goal))) "bulletGroup"
+      if(cur == goal)
+        then return()
+        else (do
+              checkBulletCollision bullet
+              checkBulletCollisionAll cur (goal-1)
+              )
+             
+
     --Move o jogador para a direita.
     --Atualiza a travelDirection para 1. travelDirection serve para dar a velocidade necessária 
     --para a bala ir para o caminho correto
@@ -151,8 +176,25 @@ module Main where
     createInvaders = 
         let invaderBounds = [(-pSqSize,-pSqSize),(pSqSize,-pSqSize),(pSqSize,pSqSize),(-pSqSize,pSqSize)] -- 'area' do quadrado
             invaderPoly   = Basic (Polyg invaderBounds 1.0 0.0 0.0 Filled) -- gera a forma do player
-        in object "invader" invaderPoly False (w/2, (h/3)-(pSqSize*3)) (5,0) () -- inicializa o player com esta forma gerada
+        in object "invader" invaderPoly False (w/2, (h/3)-(pSqSize*3)) (0,0) () -- inicializa o player com esta forma gerada
 
+    createInvadersAt :: (GLdouble, GLdouble) -> String -> SpaceInvader
+    createInvadersAt (pX, pY ) name = 
+        let invaderBounds = [(-pSqSize,-pSqSize),(pSqSize,-pSqSize),(pSqSize,pSqSize),(-pSqSize,pSqSize)] -- 'area' do quadrado
+            invaderPoly   = Basic (Polyg invaderBounds 1.0 0.0 0.0 Filled) -- gera a forma do player
+        in object name invaderPoly False (pX, pY) (0,0) () -- inicializa o player com esta forma gerada
+
+    createAllInvaders :: Int -> Int -> [SpaceInvader]
+    createAllInvaders row column
+     | (column > columns) = []
+     | (row > rows) = (createInvadersAt ((w/2)+(30*(fromIntegral row)), (h/3)) ("invader") :createAllInvaders (column+1))
+     | otherwise = (createInvadersAt ((w/2)+(30*(fromIntegral column)), (h/3)) ("invader") :createAllInvaders (column+1))
+
+    ---Space Invaders
+    initInvaders :: [SpaceInvader]
+    initInvaders = 
+     (createAllInvaders 1)
+      
     moveInvaders :: InvaderAction ()
     moveInvaders = do
        invader <- findObject "invader" "invaderGroup"
@@ -169,16 +211,15 @@ module Main where
     gameCycle = do 
       --Gets
       player <- findObject "player" "playerGroup"
-      invader <- findObject "invader" "invaderGroup"
+      --invader <- findObject "invader" "invaderGroup"
       bullets <- getObjectsFromGroup "bulletGroup"
       (vX,vY) <- getObjectSpeed player
       (pX,pY) <- getObjectPosition player
       (_,sY)  <- getObjectSize player
       (GA a t pUp b) <- getGameAttribute
-      moveInvaders
+      --moveInvaders
       col4 <- objectBottomMapCollision player
-      col5 <- objectListObjectCollision bullets invader
-      col6 <- objectBottomMapCollision invader
+      --col6 <- objectBottomMapCollision invader
       --Collisions
       when(col4) (do 
         setObjectPosition (pX, sY/2) player
@@ -188,8 +229,11 @@ module Main where
          else(return())
         )
       when(not col4)( (setObjectSpeed ( (0.0, vY-(gravityScale/16) ) ) player) )--Caso não esteja pisando no chão, simular gravidade.
-      when(col5) (setObjectAsleep True invader)
-      when(col6) (funExit)
+     -- when(col5) (do 
+      --            setObjectAsleep True invader
+       --           )
+      --checkBulletCollisionAll 1 maxAmmo
+      --when(col6) (funExit)
       showFPS TimesRoman24 (w-24, h-28) 1.0 0.0 0.0
       printOnScreen ("Ammo Remaining: " ++ show a) TimesRoman24 (0,0) 1.0 1.0 1.0
 
