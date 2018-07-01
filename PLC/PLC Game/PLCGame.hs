@@ -11,7 +11,7 @@ module Main where
     --SpaceInvader
     type SpaceInvader = GameObject ()
     type InvaderAction a = IOGame GameAttribute () () () a
-    rows = 1
+    rows = 3
     columns = 5
   
     --Ammo TravelDirection PressingUp JumpPressed
@@ -172,46 +172,53 @@ module Main where
 
 
     ---Space Invaders
-    createInvaders :: SpaceInvader
-    createInvaders = 
-        let invaderBounds = [(-pSqSize,-pSqSize),(pSqSize,-pSqSize),(pSqSize,pSqSize),(-pSqSize,pSqSize)] -- 'area' do quadrado
-            invaderPoly   = Basic (Polyg invaderBounds 1.0 0.0 0.0 Filled) -- gera a forma do player
-        in object "invader" invaderPoly False (w/2, (h/3)-(pSqSize*3)) (0,0) () -- inicializa o player com esta forma gerada
-
     createInvadersAt :: (GLdouble, GLdouble) -> String -> SpaceInvader
     createInvadersAt (pX, pY ) name = 
         let invaderBounds = [(-pSqSize,-pSqSize),(pSqSize,-pSqSize),(pSqSize,pSqSize),(-pSqSize,pSqSize)] -- 'area' do quadrado
             invaderPoly   = Basic (Polyg invaderBounds 1.0 0.0 0.0 Filled) -- gera a forma do player
         in object name invaderPoly False (pX, pY) (0,0) () -- inicializa o player com esta forma gerada
 
-    createAllInvaders :: Int -> Int -> [SpaceInvader]
-    createAllInvaders row column
-     | (column > columns) = []
-     | (row > rows) = (createInvadersAt ((w/2)+(30*(fromIntegral row)), (h/3)) ("invader") :createAllInvaders (column+1))
-     | otherwise = (createInvadersAt ((w/2)+(30*(fromIntegral column)), (h/3)) ("invader") :createAllInvaders (column+1))
+    createInvaders :: Int-> Int -> [SpaceInvader]
+    createInvaders row column
+      | (row >= rows) = []
+      | (column >= columns) = createInvaders (row+1) (-4)
+      | otherwise = do 
+        let offset = pSqSize*2 + 5
+        let x = (w/2)+(offset * (fromIntegral column))
+        let y = (h/3)+((fromIntegral row) * offset)
+        let name = "invader" ++ (show row) ++ (show column)
+        (createInvadersAt (x, y ) (name):(createInvaders (row) (column+1)) )   
 
-    ---Space Invaders
     initInvaders :: [SpaceInvader]
     initInvaders = 
-     (createAllInvaders 1)
+     (createInvaders 0 (-4) )
+
+    reverseInvaderSpeed :: String -> InvaderAction ()
+    reverseInvaderSpeed name = do
+      invader <- findObject name "invaderGroup"
+      reverseXSpeed invader
+
+    reverseAllInvadersSpeed :: Int -> Int -> InvaderAction ()
+    reverseAllInvadersSpeed row column
+      | (row >= rows) = return()
+      | (column >= columns) = reverseAllInvadersSpeed (row+1) (-4)
+      | otherwise = reverseInvaderSpeed ("invader" ++ (show row) ++ (show column) )
       
     moveInvaders :: InvaderAction ()
     moveInvaders = do
-       invader <- findObject "invader" "invaderGroup"
+       invader <- findObject "invader00" "invaderGroup"
        (pX,pY) <- getObjectPosition invader
        if(pX == (w/2 + 100) )
-        then reverseXSpeed invader
+        then reverseAllInvadersSpeed 0 (-2)
         else if (pX == w/2 - 100)
-          then reverseXSpeed invader
+          then reverseAllInvadersSpeed 0 (-2)
         else return()
-
-
 
     gameCycle :: PlayerAction ()
     gameCycle = do 
       --Gets
       player <- findObject "player" "playerGroup"
-      --invader <- findObject "invader" "invaderGroup"
+      --invaders <- getObjectsFromGroup "invaderGroup"
       bullets <- getObjectsFromGroup "bulletGroup"
       (vX,vY) <- getObjectSpeed player
       (pX,pY) <- getObjectPosition player
@@ -219,7 +226,7 @@ module Main where
       (GA a t pUp b) <- getGameAttribute
       --moveInvaders
       col4 <- objectBottomMapCollision player
-      --col6 <- objectBottomMapCollision invader
+      --col6 <- objectBottomMapCollision invaders
       --Collisions
       when(col4) (do 
         setObjectPosition (pX, sY/2) player
@@ -229,9 +236,6 @@ module Main where
          else(return())
         )
       when(not col4)( (setObjectSpeed ( (0.0, vY-(gravityScale/16) ) ) player) )--Caso não esteja pisando no chão, simular gravidade.
-     -- when(col5) (do 
-      --            setObjectAsleep True invader
-       --           )
       --checkBulletCollisionAll 1 maxAmmo
       --when(col6) (funExit)
       showFPS TimesRoman24 (w-24, h-28) 1.0 0.0 0.0
