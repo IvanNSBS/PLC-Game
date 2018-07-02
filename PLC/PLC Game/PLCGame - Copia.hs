@@ -7,11 +7,11 @@ module Main where
     --Player
     type PlayerCharacter = GameObject ()
     type PlayerBullet = GameObject ()
-    type PlayerAction a = IOGame GameAttribute () GameState TileAttribute a
+    type PlayerAction a = IOGame GameAttribute () () () a
     
     --SpaceInvader
     type SpaceInvader = GameObject ()
-    type InvaderAction a = IOGame GameAttribute () GameState TileAttribute a
+    type InvaderAction a = IOGame GameAttribute () () () a
     rows = 3
     columns = 5
     
@@ -22,43 +22,32 @@ module Main where
     data GameState = LevelStart Int | Level Int | GameOver
     data TileAttribute = NoTileAttribute
     type GameTile = Tile TileAttribute
-    type PLCGameMap = TileMatrix TileAttribute
+    type GameMap = TileMatrix TileAttribute
 
     --Player Settings
     moveSpeed = 5
     jumpVelocity = 15
     pSqSize = 12
     bulletSpeed = 15
-    maxAmmo = 150
+    maxAmmo = 200
 
     --World Settings
     gravityScale = 10
     frameTime = 16
 
     --UI Settings
-    width = 780
+    width = 840
     height = 600
     w = fromIntegral width :: GLdouble
     h = fromIntegral height :: GLdouble
-
-    --Tile settings
-    tileSize :: GLdouble
-    tileSize = 30.0
-    -- position of the paths in the list:
-    border1, free1 :: Int
-    border1 = 1
-    free1   = 2
 
     main :: IO ()
     main = do
       let winConfig = ((100,80),(width,height),"PLC Project")
 
-          bmpList  = [("tex.bmp",             Nothing),
-                      ("border1.bmp",         Nothing),
-                      ("free1.bmp",           Nothing)]
+          bmpList  = [("tex.bmp", Nothing)]
 
-          --gameMap  = textureMap 0 30 30 w h
-          gameMap  = multiMap [(tileMap map1 tileSize tileSize)] 0
+          gameMap  = textureMap 0 30 30 w h
 
           groups = [(objectGroup "playerGroup"   [createPlayer]),
                     (objectGroup "bulletGroup"    createBullets),
@@ -76,14 +65,14 @@ module Main where
             ,(Char 'q',            Press,     \_ _ -> funExit)
             ]
             
-      funInit winConfig gameMap groups (LevelStart 1) initAmmo input gameCycle (Timer frameTime) bmpList
+      funInit winConfig gameMap groups () initAmmo input gameCycle (Timer frameTime) bmpList
 
     --Cria o player. Neste momento o player é apenas um quadrado vermelho
     createPlayer :: PlayerCharacter
     createPlayer = 
         let playerBounds = [(-pSqSize,-pSqSize),(pSqSize,-pSqSize),(pSqSize,pSqSize),(-pSqSize,pSqSize)] -- 'area' do quadrado
             playerPoly   = Basic (Polyg playerBounds 1.0 0.0 0.0 Filled) -- gera a forma do player
-        in object "player" playerPoly False (w/2, pSqSize*3) (0,0) () -- inicializa o player com esta forma gerada
+        in object "player" playerPoly False (w/2, pSqSize) (0,0) () -- inicializa o player com esta forma gerada
 
     --Cria as munições do player. Retorna uma lista com todas as balas disponíveis para o jogador
     createBullets :: [PlayerBullet]
@@ -150,7 +139,7 @@ module Main where
     --Move o jogador para a direita.
     --Atualiza a travelDirection para 1. travelDirection serve para dar a velocidade necessária 
     --para a bala ir para o caminho correto
-    movePlayerRight :: Modifiers -> Position -> IOGame GameAttribute () GameState TileAttribute ()
+    movePlayerRight :: Modifiers -> Position -> IOGame GameAttribute () () () ()
     movePlayerRight _ _ = do
      obj     <- findObject "player" "playerGroup"
      (pX,pY) <- getObjectPosition obj
@@ -164,7 +153,7 @@ module Main where
     --Move o jogador para a direita.
     --Atualiza a travelDirection para -1. travelDirection serve para dar a velocidade necessária 
     --para a bala ir para o caminho correto
-    movePlayerLeft :: Modifiers -> Position -> IOGame GameAttribute () GameState TileAttribute ()
+    movePlayerLeft :: Modifiers -> Position -> IOGame GameAttribute () () () ()
     movePlayerLeft _ _ = do
       obj <- findObject "player" "playerGroup"
       (pX,pY) <- getObjectPosition obj
@@ -175,7 +164,7 @@ module Main where
        then (setObjectPosition ((pX - 5),pY) obj)
        else (setObjectPosition (sX/2,pY) obj)
 
-    toggleUpPressed :: Modifiers -> Position -> IOGame GameAttribute () GameState TileAttribute ()
+    toggleUpPressed :: Modifiers -> Position -> IOGame GameAttribute () () () ()
     toggleUpPressed _ _ = do
       (GA e a t pUp b) <- getGameAttribute
       if(pUp)
@@ -184,7 +173,7 @@ module Main where
     
       
     --Dá velocidade vertical ao jogador caso ele nao esteja pulando
-    playerJump :: Modifiers -> Position -> IOGame GameAttribute () GameState TileAttribute ()
+    playerJump :: Modifiers -> Position -> IOGame GameAttribute () () () ()
     playerJump _ _ = do
        player <- findObject "player" "playerGroup"
        (vX, vY) <- getObjectSpeed player
@@ -203,7 +192,7 @@ module Main where
     createInvaderAt (pX, pY) name =
         let invaderBounds = [(-pSqSize,-pSqSize),(pSqSize,-pSqSize),(pSqSize,pSqSize),(-pSqSize,pSqSize)] -- 'area' do quadrado
             invaderPoly   = Basic (Polyg invaderBounds 1.0 0.5 0.0 Filled) -- gera a forma do player
-        in object name invaderPoly False (pX, pY) (0,-0.05) () -- inicializa o player com esta forma gerada
+        in object name invaderPoly False (pX, pY) (0,0) () -- inicializa o player com esta forma gerada
 
     createInvaders :: Int-> Int -> [SpaceInvader]
     createInvaders row column
@@ -272,37 +261,6 @@ module Main where
       printOnScreen ("Ammo Remaining: " ++ show a) TimesRoman24 (0,0) 1.0 1.0 1.0
       printOnScreen ("Enemies Remaining: " ++ show e) TimesRoman24 (0,h-25) 1.0 1.0 1.0
 
-
-
-
-
-
-
-    b,f :: GameTile
-    b = (border1, True,  0.0, NoTileAttribute)
-    f = (free1,   False, 0.0, NoTileAttribute)
-
-    map1 :: PLCGameMap
-    map1 = [[f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f],
-            [f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f],
-            [f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f],
-            [f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f],
-            [f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f],
-            [f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f],
-            [f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f],
-            [f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f],
-            [f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f],
-            [f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f],
-            [f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f],
-            [f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f],
-            [f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f],
-            [f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f],
-            [f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f],
-            [f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f],
-            [f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f],
-            [f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f],
-            [f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f],
-            [b,b,b,b,b,b,b,b,b,b,b,b,b,b,b,b,b,b,b,b,b,b,b,b,b,b]]
 {-
 Falta : 
 Verificar colisao das balas com o uso de threads para eficiencia
