@@ -2,6 +2,7 @@ module Main where
 
     import Graphics.UI.Fungen
     import Graphics.Rendering.OpenGL (GLdouble)
+    import System.Random
 
     
     --Player
@@ -14,12 +15,16 @@ module Main where
     type InvaderAction a = IOGame GameAttribute () GameState TileAttribute a
     rows = 3
     columns = 5
+    invaderYSpeed = (-0.3)
+    invaderXSpeed = 4
+    enemy1Amount = 10
+    enemy2Amount = 15
     
     --Enemies Left Ammo TravelDirection PressingUp JumpPressed
     data GameAttribute = GA Int Int Double Bool Bool
 
     --Level
-    data GameState = LevelStart Int | Level Int | GameOver
+    data GameState = Level Int
     data TileAttribute = NoTileAttribute
     type GameTile = Tile TileAttribute
     type PLCGameMap = TileMatrix TileAttribute
@@ -29,7 +34,7 @@ module Main where
     jumpVelocity = 15
     pSqSize = 12
     bulletSpeed = 15
-    maxAmmo = 150
+    maxAmmo = 100
 
     --World Settings
     gravityScale = 10
@@ -43,11 +48,15 @@ module Main where
 
     --Tile settings
     tileSize :: GLdouble
-    tileSize = 30.0
+    tileSize = 32.0
     -- position of the paths in the list:
-    border1, free1 :: Int
+    border1, border2, border3, free1, free2, free3 :: Int
     border1 = 1
-    free1   = 2
+    border2 = 2
+    border3 = 3
+    free1   = 4
+    free2   = 5
+    free3   = 6
 
     main :: IO ()
     main = do
@@ -55,14 +64,23 @@ module Main where
 
           bmpList  = [("tex.bmp",             Nothing),
                       ("border1.bmp",         Nothing),
-                      ("free1.bmp",           Nothing)]
+                      ("border2.bmp",         Nothing),
+                      ("border3.bmp",         Nothing),
+                      ("free1.bmp",           Nothing),
+                      ("free2.bmp",           Nothing),
+                      ("free3.bmp",           Nothing)]
 
           --gameMap  = textureMap 0 30 30 w h
-          gameMap  = multiMap [(tileMap map1 tileSize tileSize)] 0
+          gameMap  = multiMap [(tileMap map1 tileSize tileSize),
+                               (tileMap map2 tileSize tileSize),
+                               (tileMap map3 tileSize tileSize)] 0
 
-          groups = [(objectGroup "playerGroup"   [createPlayer]),
-                    (objectGroup "bulletGroup"    createBullets),
-                    (objectGroup "invaderGroup"   initInvaders )]
+          groups = [(objectGroup "playerGroup"      [createPlayer]),
+                    (objectGroup "bulletGroup"       createBullets),
+                    (objectGroup "invaderGroup"      initInvaders ),
+                    (objectGroup "enemy1Group"   [createEnemiesT1]),
+                    (objectGroup "enemy2Group"   [createEnemiesT2]),
+                    (objectGroup "helperGroup"       [createHelper])]
 
           initAmmo = GA (rows * ((columns*2)-1) ) maxAmmo 1.0 False False
 
@@ -76,14 +94,14 @@ module Main where
             ,(Char 'q',            Press,     \_ _ -> funExit)
             ]
             
-      funInit winConfig gameMap groups (LevelStart 1) initAmmo input gameCycle (Timer frameTime) bmpList
+      funInit winConfig gameMap groups (Level 1) initAmmo input (gameCycle 1) (Timer frameTime) bmpList
 
     --Cria o player. Neste momento o player é apenas um quadrado vermelho
     createPlayer :: PlayerCharacter
     createPlayer = 
         let playerBounds = [(-pSqSize,-pSqSize),(pSqSize,-pSqSize),(pSqSize,pSqSize),(-pSqSize,pSqSize)] -- 'area' do quadrado
             playerPoly   = Basic (Polyg playerBounds 1.0 0.0 0.0 Filled) -- gera a forma do player
-        in object "player" playerPoly False (w/2, pSqSize*3) (0,0) () -- inicializa o player com esta forma gerada
+        in object "player" playerPoly False (w/2, pSqSize*10) (0,0) () -- inicializa o player com esta forma gerada
 
     --Cria as munições do player. Retorna uma lista com todas as balas disponíveis para o jogador
     createBullets :: [PlayerBullet]
@@ -103,23 +121,14 @@ module Main where
     spawnBullet :: Modifiers -> Position -> PlayerAction ()
     spawnBullet _ _= do
       (GA e a t pUp b) <- getGameAttribute
-      if(a > 0)
-        then( do
-        bullet <- findObject ("bullet" ++ (show a)) "bulletGroup" --Encontra a última bala da lista
-        player <- findObject "player" "playerGroup" --Encontra o player
-        (pX, pY) <- getObjectPosition player
-        (sX, sY) <- getObjectSize player --Coleta dados do jogador
-        setObjectAsleep False bullet --Spawna efetivamente a bala no mapa
-        if(pUp)
-          then(do 
-              setObjectPosition (pX, pY) bullet --Passa os parametros necessários como posição e velocidade.
-              setObjectSpeed (0,bulletSpeed) bullet)
-          else( do
-               setObjectPosition (pX+(2*t), pY) bullet --Passa os parametros necessários como posição e velocidade.
-               setObjectSpeed (bulletSpeed*t,0) bullet)
-        setGameAttribute(GA e (a-1) t pUp b)-- Diminui a quantidade de balas disponiveis
-        )
-        else return()
+      bullet <- findObject ("bullet" ++ (show a)) "bulletGroup" --Encontra a última bala da lista
+      player <- findObject "player" "playerGroup" --Encontra o player
+      (pX, pY) <- getObjectPosition player
+      (sX, sY) <- getObjectSize player --Coleta dados do jogador
+      setObjectAsleep False bullet --Spawna efetivamente a bala no mapa
+      setObjectPosition (pX, pY) bullet --Passa os parametros necessários como posição e velocidade.
+      setObjectSpeed (0,bulletSpeed) bullet
+      setGameAttribute(GA e (a-1) t pUp b)
 
         
     checkBulletCollision :: PlayerBullet -> [SpaceInvader] -> PlayerAction ()
@@ -203,7 +212,14 @@ module Main where
     createInvaderAt (pX, pY) name =
         let invaderBounds = [(-pSqSize,-pSqSize),(pSqSize,-pSqSize),(pSqSize,pSqSize),(-pSqSize,pSqSize)] -- 'area' do quadrado
             invaderPoly   = Basic (Polyg invaderBounds 1.0 0.5 0.0 Filled) -- gera a forma do player
-        in object name invaderPoly False (pX, pY) (0,-0.05) () -- inicializa o player com esta forma gerada
+        in object name invaderPoly False (pX, pY) (invaderXSpeed, invaderYSpeed) () -- inicializa o player com esta forma gerada
+
+    --Invader Helper
+    createHelper :: SpaceInvader
+    createHelper =
+        let invaderBounds = [(-pSqSize,-pSqSize),(pSqSize,-pSqSize),(pSqSize,pSqSize),(-pSqSize,pSqSize)] -- 'area' do quadrado
+            invaderPoly   = Basic (Polyg invaderBounds 1.0 1.0 1.0 Filled) -- gera a forma do player
+        in object "helper" invaderPoly False (w/2, h+50) (invaderXSpeed, 0) () -- inicializa o player com esta forma gerada
 
     createInvaders :: Int-> Int -> [SpaceInvader]
     createInvaders row column
@@ -231,22 +247,75 @@ module Main where
     --Precisa de thread.     
     moveInvaders :: InvaderAction ()
     moveInvaders = do
-       invader <- findObject "invader00" "invaderGroup"
+       invader <- findObject "helper" "helperGroup"
        allInvaders <- getObjectsFromGroup "invaderGroup"
        (pX,pY) <- getObjectPosition invader
-       if(pX >= (w/2 + 100) )
-        then reverseInvadersSpeed allInvaders
-        else if (pX <= w/2 - 100)
-          then reverseInvadersSpeed allInvaders
+       if(pX == (w/2 + 100) )
+        then (do 
+               reverseInvadersSpeed allInvaders
+               reverseXSpeed invader)
+        else if (pX == w/2 - 100)
+          then (do 
+                 reverseInvadersSpeed allInvaders
+                 reverseXSpeed invader)
         else return()
 
+    --Level
+    setNewLevel :: Int -> PlayerAction ()
+    setNewLevel n = do
+      if(n >= 1 && n <= 3)
+        then(do
+             resetLevelAttributes
+             invaders <- getObjectsFromGroup "invaderGroup"
+             resetInvadersPos invaders 0 (-4)
+             resetHelperPos
+             setCurrentMapIndex (n-1))
+        else return()     
+
+    resetLevelAttributes :: PlayerAction()
+    resetLevelAttributes = do
+       (GA e a t pUp b) <- getGameAttribute
+       setGameAttribute(GA 27 maxAmmo t pUp b)
+       
+    resetInvadersPos :: [SpaceInvader] -> Int-> Int -> InvaderAction ()
+    resetInvadersPos [] _ _ = return ()
+    resetInvadersPos (i:xs) row column  
+      | (row >= rows) = return()
+      | (column >= columns) = resetInvadersPos (i:xs) (row+1) (-4)
+      | otherwise = do 
+        let offset = pSqSize*2 + 5
+        let x = (w/2)+(offset * (fromIntegral column))
+        let y = (h - 100)+((fromIntegral row) * offset)
+        setObjectAsleep False i
+        setObjectPosition (x,y) i
+        resetInvadersPos xs (row) (column + 1) 
+        
+    resetHelperPos :: InvaderAction ()
+    resetHelperPos = do
+      helper <- findObject "helper" "helperGroup"
+      setObjectPosition (w/2, h+50) helper    
+
+    --Enemies
+    createEnemiesT1 :: SpaceInvader
+    createEnemiesT1 =
+        let invaderBounds = [(-pSqSize,-pSqSize),(pSqSize*2.5,-pSqSize),(pSqSize*2.5,pSqSize),(-pSqSize,pSqSize)] -- 'area' do quadrado
+            invaderPoly   = Basic (Polyg invaderBounds 0.0 0.5 1.0 Filled) -- gera a forma do player
+        in object "enemy1" invaderPoly False (0, (pSqSize+30)) (4.5,0) () -- inicializa o player com esta forma gerada
+
+    createEnemiesT2 :: SpaceInvader
+    createEnemiesT2 =
+        let invaderBounds = [(-pSqSize,-pSqSize),(pSqSize*2.5,-pSqSize),(pSqSize*2.5,pSqSize*3),(-pSqSize,pSqSize*3)] -- 'area' do quadrado
+            invaderPoly   = Basic (Polyg invaderBounds 1.0 0.0 1.0 Filled) -- gera a forma do player
+        in object "enemy2" invaderPoly False (0, (pSqSize+30)) (2.5,0) () -- inicializa o player com esta forma gerada
 
     -- Game Cycle    
-    gameCycle :: PlayerAction ()
-    gameCycle = do 
+    gameCycle :: Int -> PlayerAction ()
+    gameCycle _ = do 
       --Gets
       player <- findObject "player" "playerGroup"
       bullets <- getObjectsFromGroup "bulletGroup"
+      playerPos <- getObjectPosition player
+      gState <- getGameState
 
       (vX,vY) <- getObjectSpeed player
       (pX,pY) <- getObjectPosition player
@@ -254,33 +323,68 @@ module Main where
 
       (GA e a t pUp b) <- getGameAttribute
 
+      moveInvaders
+
+      --Advance Level
+      if(e <= 0)
+        then(do         
+          case gState of
+            Level n -> case n of
+                       1 -> do 
+                            setGameState (Level 2)
+                            setNewLevel 2
+                       2 -> do 
+                            setGameState (Level 3)
+                            setNewLevel 3
+                       3 -> return())
+        else return()
+
+
       --Collisions
       checkAllBulletsCollision bullets
 
-      col4 <- objectBottomMapCollision player
-      when(col4) (do 
-        setObjectPosition (pX, sY/2) player
+      tile <- getTileFromWindowPosition playerPos
+      when(getTileBlocked tile) (do 
+        setObjectPosition (pX, tileSize) player
         setObjectSpeed (vX, 0) player
         if(b)
          then(setGameAttribute(GA e a t pUp False))--Caso o jogador pouse no chão, significa que o pulo acabou. Atualizar o booleano
          else(return())
         )
-      when(not col4)( (setObjectSpeed ( (0.0, vY-(gravityScale/16) ) ) player) )--Caso não esteja pisando no chão, simular gravidade.
+      when(not (getTileBlocked tile))( (setObjectSpeed ( (0.0, vY-(gravityScale/10) ) ) player) )--Caso não esteja pisando no chão, simular gravidade.
+
+      enemies <- getObjectsFromGroup "enemy1Group"
+      col5 <- objectListObjectCollision enemies player
+      when(col5)(do 
+                 setGameState (Level 1)
+                 setNewLevel 1)
+
+      enemies <- getObjectsFromGroup "enemy2Group"
+      col5 <- objectListObjectCollision enemies player
+      when(col5)(do 
+                 setGameState (Level 1)
+                 setNewLevel 1)
+      
 
       --UI
       showFPS TimesRoman24 (w-24, h-28) 1.0 0.0 0.0
       printOnScreen ("Ammo Remaining: " ++ show a) TimesRoman24 (0,0) 1.0 1.0 1.0
       printOnScreen ("Enemies Remaining: " ++ show e) TimesRoman24 (0,h-25) 1.0 1.0 1.0
+      
 
 
 
 
 
 
-
-    b,f :: GameTile
+    b,f,b2,g2,b3,g3 :: GameTile
     b = (border1, True,  0.0, NoTileAttribute)
     f = (free1,   False, 0.0, NoTileAttribute)
+    b2 = (border2, True,  0.0, NoTileAttribute)
+    g2 = (free2, False,  0.0, NoTileAttribute)
+    b3 = (border3, True,  0.0, NoTileAttribute)
+    g3 = (free3, False,  0.0, NoTileAttribute)
+      
 
     map1 :: PLCGameMap
     map1 = [[f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f],
@@ -303,12 +407,47 @@ module Main where
             [f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f],
             [f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f],
             [b,b,b,b,b,b,b,b,b,b,b,b,b,b,b,b,b,b,b,b,b,b,b,b,b,b]]
-{-
-Falta : 
-Verificar colisao das balas com o uso de threads para eficiencia
-Verificar colisao dos invaders com o final do mapa para game over
-Os 3 níveis
-Threads para mover os invaders de um lado para o outro
-Os níveis a mais terão tipos de inimigos a mais
-Os inimigos serão spawnados com threadss
--}      
+
+    map2 :: PLCGameMap
+    map2 = [[g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2],
+            [g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2],
+            [g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2],
+            [g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2],
+            [g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2],
+            [g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2],
+            [g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2],
+            [g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2],
+            [g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2],
+            [g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2],
+            [g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2],
+            [g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2],
+            [g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2],
+            [g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2],
+            [g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2],
+            [g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2],
+            [g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2],
+            [g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2],
+            [g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2,g2],
+            [b2,b2,b2,b2,b2,b2,b2,b2,b2,b2,b2,b2,b2,b2,b2,b2,b2,b2,b2,b2,b2,b2,b2,b2,b2,b2]]
+
+    map3 :: PLCGameMap
+    map3 = [[g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3],
+            [g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3],
+            [g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3],
+            [g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3],
+            [g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3],
+            [g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3],
+            [g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3],
+            [g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3],
+            [g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3],
+            [g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3],
+            [g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3],
+            [g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3],
+            [g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3],
+            [g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3],
+            [g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3],
+            [g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3],
+            [g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3],
+            [g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3],
+            [g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3,g3],
+            [b3,b3,b3,b3,b3,b3,b3,b3,b3,b3,b3,b3,b3,b3,b3,b3,b3,b3,b3,b3,b3,b3,b3,b3,b3,b3]]      
