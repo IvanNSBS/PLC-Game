@@ -20,8 +20,8 @@ module Main where
     enemy1Amount = 10
     enemy2Amount = 15
     
-    --Enemies Left Ammo TravelDirection PressingUp JumpPressed
-    data GameAttribute = GA Int Int Double Bool Bool
+    --EnemiesLeft AmmoLeft TravelDirection JumpPressed T1EnemiesLeft T2EnemiesLeft
+    data GameAttribute = GA Int Int Double Bool Int Int
 
     --Level
     data GameState = Level Int
@@ -70,38 +70,130 @@ module Main where
                       ("free2.bmp",           Nothing),
                       ("free3.bmp",           Nothing)]
 
-          --gameMap  = textureMap 0 30 30 w h
           gameMap  = multiMap [(tileMap map1 tileSize tileSize),
                                (tileMap map2 tileSize tileSize),
                                (tileMap map3 tileSize tileSize)] 0
 
-          groups = [(objectGroup "playerGroup"      [createPlayer]),
-                    (objectGroup "bulletGroup"       createBullets),
-                    (objectGroup "invaderGroup"      initInvaders ),
-                    (objectGroup "enemy1Group"   [createEnemiesT1]),
-                    (objectGroup "enemy2Group"   [createEnemiesT2]),
-                    (objectGroup "helperGroup"       [createHelper])]
+          groups = [(objectGroup "playerGroup"      [createPlayer] ),
+                    (objectGroup "bulletGroup"       createBullets ),
+                    (objectGroup "invaderGroup"       initInvaders ),
+                    (objectGroup "enemy1Group"     createEnemiesT1 ),
+                    (objectGroup "enemy2Group"     createEnemiesT2 ),
+                    (objectGroup "helperGroup"      [createHelper] )]
 
-          initAmmo = GA (rows * ((columns*2)-1) ) maxAmmo 1.0 False False
+          initAttributes = GA (rows * ((columns*2)-1) ) maxAmmo 1.0 False enemy1Amount enemy2Amount
 
           input = [
             (SpecialKey KeyRight,  StillDown, movePlayerRight)
             ,(SpecialKey KeyLeft,  StillDown, movePlayerLeft)
-            ,(SpecialKey KeyUp,    Press, toggleUpPressed)
-            ,(SpecialKey KeyUp,    Release, toggleUpPressed)
             ,(Char ' ',            Press, playerJump)
-            ,(Char 'c',            Press, spawnBullet)
-            ,(Char 'q',            Press,     \_ _ -> funExit)
+            ,(Char 'q',            Press, spawnBullet)
+            ,(Char ''',            Press,     \_ _ -> funExit)
             ]
             
-      funInit winConfig gameMap groups (Level 1) initAmmo input (gameCycle 1) (Timer frameTime) bmpList
+      funInit winConfig gameMap groups (Level 1) initAttributes input (gameCycle 1) (Timer frameTime) bmpList
 
+    --Player Functions
+    
+    
     --Cria o player. Neste momento o player é apenas um quadrado vermelho
     createPlayer :: PlayerCharacter
     createPlayer = 
         let playerBounds = [(-pSqSize,-pSqSize),(pSqSize,-pSqSize),(pSqSize,pSqSize),(-pSqSize,pSqSize)] -- 'area' do quadrado
             playerPoly   = Basic (Polyg playerBounds 1.0 0.0 0.0 Filled) -- gera a forma do player
         in object "player" playerPoly False (w/2, pSqSize*10) (0,0) () -- inicializa o player com esta forma gerada
+
+    --Player Collision
+
+    --Detecta colisao entre o player e o chao e simula gravidade caso o player nao esteja no chao
+    --também reseta a capacidade de pular quando atinge o chao
+    playerDefaultCol :: PlayerAction ()
+    playerDefaultCol = do
+      player <- findObject "player" "playerGroup"
+      playerPos <- getObjectPosition player
+      tile <- getTileFromWindowPosition playerPos
+      (vX, vY) <- getObjectSpeed player
+      (pX, pY) <- getObjectPosition player
+      (GA e a t b et1 et2) <- getGameAttribute
+      when(getTileBlocked tile) (do 
+        setObjectPosition (pX, tileSize) player
+        setObjectSpeed (vX, 0) player
+        if(b)
+         then(setGameAttribute(GA e a t False et1 et2))--Caso o jogador pouse no chão, significa que o pulo acabou. Atualizar o booleano
+         else(return())
+        )
+      when(not (getTileBlocked tile))( (setObjectSpeed ( (0.0, vY-(gravityScale/10) ) ) player) )--Caso não esteja pisando no chão, simular gravidade. 
+     
+    --Detecta colisao com os inimigos e o player
+    --caso um inimigo atinja o player, voltar para o nivel 1 e resetar tudo  
+    playerEnemyColision :: PlayerAction() 
+    playerEnemyColision = do
+      player <- findObject "player" "playerGroup"
+      enemies <- getObjectsFromGroup "enemy1Group"
+
+      col <- objectListObjectCollision enemies player
+      when(col) (do 
+                setGameState(Level 1)
+                setNewLevel 1)
+
+      enemies <- getObjectsFromGroup "enemy2Group"
+      col <- objectListObjectCollision enemies player
+      when(col) (do 
+                setGameState(Level 1)
+                setNewLevel 1)
+
+    checkPlayerCollisions :: PlayerAction ()
+    checkPlayerCollisions = do
+      playerEnemyColision
+      playerDefaultCol            
+
+
+    --Player IO
+
+    --Move o jogador para a direita.
+    --Atualiza a travelDirection para 1. travelDirection serve para dar a velocidade necessária 
+    --para a bala ir para o caminho correto
+    movePlayerRight :: Modifiers -> Position -> IOGame GameAttribute () GameState TileAttribute ()
+    movePlayerRight _ _ = do
+     obj     <- findObject "player" "playerGroup"
+     (pX,pY) <- getObjectPosition obj
+     (sX,_)  <- getObjectSize obj
+     (GA e a t b et1 et2) <- getGameAttribute
+     setGameAttribute(GA e a 1.0 b et1 et2)--atualiza a travel direction para -1
+     if (pX + (sX/2) + 5 <= w)
+      then (setObjectPosition ((pX + moveSpeed),pY) obj)
+      else (setObjectPosition ((w - (sX/2)),pY) obj)
+
+    --Move o jogador para a direita.
+    --Atualiza a travelDirection para -1. travelDirection serve para dar a velocidade necessária 
+    --para a bala ir para o caminho correto
+    movePlayerLeft :: Modifiers -> Position -> IOGame GameAttribute () GameState TileAttribute ()
+    movePlayerLeft _ _ = do
+      obj <- findObject "player" "playerGroup"
+      (pX,pY) <- getObjectPosition obj
+      (sX,_)  <- getObjectSize obj
+      (GA e a t b et1 et2) <- getGameAttribute
+      setGameAttribute(GA e a (-1.0) b et1 et2)--atualiza a travel direction para -1
+      if (pX - (sX/2) - moveSpeed >= 0)
+       then (setObjectPosition ((pX - 5),pY) obj)
+       else (setObjectPosition (sX/2,pY) obj)
+    
+    --Dá velocidade vertical ao jogador caso ele nao esteja pulando
+    playerJump :: Modifiers -> Position -> IOGame GameAttribute () GameState TileAttribute ()
+    playerJump _ _ = do
+       player <- findObject "player" "playerGroup"
+       (vX, vY) <- getObjectSpeed player
+       (GA e a t b et1 et2) <- getGameAttribute
+       if(not b)
+        then (do 
+          setObjectSpeed(vX, jumpVelocity) player
+          setGameAttribute(GA e a t True et1 et2)--Booleano diz que o jogador está atualmente pulando
+          )
+        else return()
+
+
+
+    --Player Ammo
 
     --Cria as munições do player. Retorna uma lista com todas as balas disponíveis para o jogador
     createBullets :: [PlayerBullet]
@@ -120,7 +212,7 @@ module Main where
     --Dispara as balas
     spawnBullet :: Modifiers -> Position -> PlayerAction ()
     spawnBullet _ _= do
-      (GA e a t pUp b) <- getGameAttribute
+      (GA e a t b et1 et2) <- getGameAttribute
       bullet <- findObject ("bullet" ++ (show a)) "bulletGroup" --Encontra a última bala da lista
       player <- findObject "player" "playerGroup" --Encontra o player
       (pX, pY) <- getObjectPosition player
@@ -128,9 +220,8 @@ module Main where
       setObjectAsleep False bullet --Spawna efetivamente a bala no mapa
       setObjectPosition (pX, pY) bullet --Passa os parametros necessários como posição e velocidade.
       setObjectSpeed (0,bulletSpeed) bullet
-      setGameAttribute(GA e (a-1) t pUp b)
+      setGameAttribute(GA e (a-1) t b et1 et2)
 
-        
     checkBulletCollision :: PlayerBullet -> [SpaceInvader] -> PlayerAction ()
     checkBulletCollision bullet (x:xs) = do
       col <- objectsCollision bullet x
@@ -138,8 +229,8 @@ module Main where
         then( do
               setObjectAsleep True x
               setObjectAsleep True bullet
-              (GA e a t pUp b) <- getGameAttribute
-              setGameAttribute(GA (e-1) a t pUp b) )
+              (GA e a t b et1 et2) <- getGameAttribute
+              setGameAttribute(GA (e-1) a t b et1 et2) )
         else if(not(length xs == 0))
           then (checkBulletCollision bullet xs)
           else return()
@@ -154,56 +245,15 @@ module Main where
      | otherwise = do 
                    invaders <- getObjectsFromGroup "invaderGroup"
                    checkBulletCollision b invaders
-                   checkAllBulletsCollision bs  
+                   checkAllBulletsCollision bs 
 
-    --Move o jogador para a direita.
-    --Atualiza a travelDirection para 1. travelDirection serve para dar a velocidade necessária 
-    --para a bala ir para o caminho correto
-    movePlayerRight :: Modifiers -> Position -> IOGame GameAttribute () GameState TileAttribute ()
-    movePlayerRight _ _ = do
-     obj     <- findObject "player" "playerGroup"
-     (pX,pY) <- getObjectPosition obj
-     (sX,_)  <- getObjectSize obj
-     (GA e a t pUp b) <- getGameAttribute
-     setGameAttribute(GA e a 1.0 pUp b)--atualiza a travel direction para -1
-     if (pX + (sX/2) + 5 <= w)
-      then (setObjectPosition ((pX + moveSpeed),pY) obj)
-      else (setObjectPosition ((w - (sX/2)),pY) obj)
-
-    --Move o jogador para a direita.
-    --Atualiza a travelDirection para -1. travelDirection serve para dar a velocidade necessária 
-    --para a bala ir para o caminho correto
-    movePlayerLeft :: Modifiers -> Position -> IOGame GameAttribute () GameState TileAttribute ()
-    movePlayerLeft _ _ = do
-      obj <- findObject "player" "playerGroup"
-      (pX,pY) <- getObjectPosition obj
-      (sX,_)  <- getObjectSize obj
-      (GA e a t pUp b) <- getGameAttribute
-      setGameAttribute(GA e a (-1.0) pUp b)--atualiza a travel direction para -1
-      if (pX - (sX/2) - moveSpeed >= 0)
-       then (setObjectPosition ((pX - 5),pY) obj)
-       else (setObjectPosition (sX/2,pY) obj)
-
-    toggleUpPressed :: Modifiers -> Position -> IOGame GameAttribute () GameState TileAttribute ()
-    toggleUpPressed _ _ = do
-      (GA e a t pUp b) <- getGameAttribute
-      if(pUp)
-        then ( setGameAttribute(GA e a t False b) )
-        else ( setGameAttribute(GA e a t True b) )
-    
-      
-    --Dá velocidade vertical ao jogador caso ele nao esteja pulando
-    playerJump :: Modifiers -> Position -> IOGame GameAttribute () GameState TileAttribute ()
-    playerJump _ _ = do
-       player <- findObject "player" "playerGroup"
-       (vX, vY) <- getObjectSpeed player
-       (GA e a t pUp b) <- getGameAttribute
-       if(not b)
-        then (do 
-          setObjectSpeed(vX, jumpVelocity) player
-          setGameAttribute(GA e a t pUp True)--Booleano diz que o jogador está atualmente pulando
-          )
-        else return()
+    disableAllBullets :: [PlayerBullet] -> PlayerAction ()
+    disableAllBullets [] = return ()
+    disableAllBullets (x:xs) = do
+      setObjectAsleep True x
+      disableAllBullets xs         
+                   
+                   
 
 
 
@@ -244,7 +294,6 @@ module Main where
          reverseXSpeed x
          reverseInvadersSpeed (xs)
     
-    --Precisa de thread.     
     moveInvaders :: InvaderAction ()
     moveInvaders = do
        invader <- findObject "helper" "helperGroup"
@@ -260,23 +309,6 @@ module Main where
                  reverseXSpeed invader)
         else return()
 
-    --Level
-    setNewLevel :: Int -> PlayerAction ()
-    setNewLevel n = do
-      if(n >= 1 && n <= 3)
-        then(do
-             resetLevelAttributes
-             invaders <- getObjectsFromGroup "invaderGroup"
-             resetInvadersPos invaders 0 (-4)
-             resetHelperPos
-             setCurrentMapIndex (n-1))
-        else return()     
-
-    resetLevelAttributes :: PlayerAction()
-    resetLevelAttributes = do
-       (GA e a t pUp b) <- getGameAttribute
-       setGameAttribute(GA 27 maxAmmo t pUp b)
-       
     resetInvadersPos :: [SpaceInvader] -> Int-> Int -> InvaderAction ()
     resetInvadersPos [] _ _ = return ()
     resetInvadersPos (i:xs) row column  
@@ -293,37 +325,137 @@ module Main where
     resetHelperPos :: InvaderAction ()
     resetHelperPos = do
       helper <- findObject "helper" "helperGroup"
-      setObjectPosition (w/2, h+50) helper    
+      setObjectPosition (w/2, h+50) helper 
+        
+    checkInvadersMapCol :: [SpaceInvader] -> InvaderAction ()
+    checkInvadersMapCol [] = return()
+    checkInvadersMapCol (x:xs) = do
+      invaderPos <- getObjectPosition x
+      tile <- getTileFromWindowPosition invaderPos
+      if(getTileBlocked tile)
+        then (do 
+               setGameState (Level 1)
+               setNewLevel 1)
+        else checkInvadersMapCol xs
+
+    checkInvadersBottomMapCol :: InvaderAction ()
+    checkInvadersBottomMapCol = do
+      invaders <- getObjectsFromGroup "invaderGroup"
+      checkInvadersMapCol invaders
+
 
     --Enemies
-    createEnemiesT1 :: SpaceInvader
-    createEnemiesT1 =
+
+    --Enemy1
+    createEnemyT1 :: String -> SpaceInvader
+    createEnemyT1 name =
         let invaderBounds = [(-pSqSize,-pSqSize),(pSqSize*2.5,-pSqSize),(pSqSize*2.5,pSqSize),(-pSqSize,pSqSize)] -- 'area' do quadrado
             invaderPoly   = Basic (Polyg invaderBounds 0.0 0.5 1.0 Filled) -- gera a forma do player
-        in object "enemy1" invaderPoly False (0, (pSqSize+30)) (4.5,0) () -- inicializa o player com esta forma gerada
+        in object name invaderPoly True (w+10, (pSqSize+30)) (-4.5,0) () -- inicializa o player com esta forma gerada
 
-    createEnemiesT2 :: SpaceInvader
-    createEnemiesT2 =
-        let invaderBounds = [(-pSqSize,-pSqSize),(pSqSize*2.5,-pSqSize),(pSqSize*2.5,pSqSize*3),(-pSqSize,pSqSize*3)] -- 'area' do quadrado
+    createAsleepEnemies1 :: Int -> [SpaceInvader]
+    createAsleepEnemies1 amount
+     | (amount >= enemy1Amount) = []
+     | otherwise = do 
+        let name = "enemy1" ++ show(amount)
+        (createEnemyT1 (name)):createAsleepEnemies1(amount+1)    
+
+    createEnemiesT1 :: [SpaceInvader]
+    createEnemiesT1 = createAsleepEnemies1 0    
+
+    spawnT1Enemy :: InvaderAction ()
+    spawnT1Enemy = do
+      (GA e a t b et1 et2) <- getGameAttribute
+      enemy <- findObject ("enemy1" ++ show(et1)) "enemy1Group"
+      setObjectAsleep False enemy
+      setGameAttribute (GA e a t b (et1 - 1) et2)
+
+    resetT1Enemies :: [SpaceInvader] -> InvaderAction ()
+    resetT1Enemies [] = return ()
+    resetT1Enemies (x:xs) = do
+      setObjectPosition ((w+10, (pSqSize+30))) x  
+      setObjectAsleep True x
+      resetT1Enemies xs
+        
+
+
+    --Enemy2
+    createEnemyT2 :: String -> SpaceInvader
+    createEnemyT2 name =
+        let invaderBounds = [(-pSqSize,-pSqSize),(pSqSize*2,-pSqSize),(pSqSize*2,pSqSize*3.5),(-pSqSize,pSqSize*3.5)] -- 'area' do quadrado
             invaderPoly   = Basic (Polyg invaderBounds 1.0 0.0 1.0 Filled) -- gera a forma do player
-        in object "enemy2" invaderPoly False (0, (pSqSize+30)) (2.5,0) () -- inicializa o player com esta forma gerada
+        in object name invaderPoly True (-10, (pSqSize+30)) (2.5,0) () -- inicializa o player com esta forma gerada
+
+    createAsleepEnemies2 :: Int -> [SpaceInvader]
+    createAsleepEnemies2 amount
+     | (amount >= enemy2Amount) = []
+     | otherwise = do 
+        let name = "enemy2" ++ show(amount)
+        (createEnemyT2 (name)):createAsleepEnemies2(amount+1)    
+
+    createEnemiesT2 :: [SpaceInvader]
+    createEnemiesT2 = createAsleepEnemies2 0   
+    
+    spawnT2Enemy :: InvaderAction ()
+    spawnT2Enemy = do
+      (GA e a t b et1 et2) <- getGameAttribute
+      enemy <- findObject ("enemy2" ++ show(et1)) "enemy2Group"
+      setObjectAsleep False  enemy
+      setGameAttribute (GA e a t b et1 (et2 - 1) )
+
+    resetT2Enemies :: [SpaceInvader] -> InvaderAction ()
+    resetT2Enemies [] = return ()
+    resetT2Enemies (x:xs) = do
+      setObjectPosition (-10, (pSqSize+30)) x  
+      setObjectAsleep True x
+      resetT2Enemies xs
+
+
+    --Level
+    setNewLevel :: Int -> PlayerAction ()
+    setNewLevel n = do
+      if(n >= 1 && n <= 3)
+        then(do
+             resetLevelAttributes
+
+             invaders <- getObjectsFromGroup "invaderGroup"
+             resetInvadersPos invaders 0 (-4)
+
+             t1Enemies <- getObjectsFromGroup "enemy1Group"
+             resetT1Enemies t1Enemies
+
+             t2Enemies <- getObjectsFromGroup "enemy2Group"
+             resetT2Enemies t2Enemies
+
+             bullets <- getObjectsFromGroup "bulletGroup"
+             disableAllBullets bullets
+
+             resetHelperPos
+
+             setCurrentMapIndex (n-1))
+             
+        else return()     
+
+    resetLevelAttributes :: PlayerAction()
+    resetLevelAttributes = do
+       (GA e a t b et1 et2) <- getGameAttribute
+       setGameAttribute(GA 27 maxAmmo t b et1 et2)
 
     -- Game Cycle    
     gameCycle :: Int -> PlayerAction ()
     gameCycle _ = do 
       --Gets
-      player <- findObject "player" "playerGroup"
       bullets <- getObjectsFromGroup "bulletGroup"
-      playerPos <- getObjectPosition player
       gState <- getGameState
+      (GA e a t b et1 et2) <- getGameAttribute
 
-      (vX,vY) <- getObjectSpeed player
-      (pX,pY) <- getObjectPosition player
-      (_,sY)  <- getObjectSize player
-
-      (GA e a t pUp b) <- getGameAttribute
-
+      --Actions
       moveInvaders
+      
+      --Collisions
+      checkAllBulletsCollision bullets
+      checkPlayerCollisions
+      checkInvadersBottomMapCol
 
       --Advance Level
       if(e <= 0)
@@ -339,41 +471,11 @@ module Main where
                        3 -> return())
         else return()
 
-
-      --Collisions
-      checkAllBulletsCollision bullets
-
-      tile <- getTileFromWindowPosition playerPos
-      when(getTileBlocked tile) (do 
-        setObjectPosition (pX, tileSize) player
-        setObjectSpeed (vX, 0) player
-        if(b)
-         then(setGameAttribute(GA e a t pUp False))--Caso o jogador pouse no chão, significa que o pulo acabou. Atualizar o booleano
-         else(return())
-        )
-      when(not (getTileBlocked tile))( (setObjectSpeed ( (0.0, vY-(gravityScale/10) ) ) player) )--Caso não esteja pisando no chão, simular gravidade.
-
-      enemies <- getObjectsFromGroup "enemy1Group"
-      col5 <- objectListObjectCollision enemies player
-      when(col5)(do 
-                 setGameState (Level 1)
-                 setNewLevel 1)
-
-      enemies <- getObjectsFromGroup "enemy2Group"
-      col5 <- objectListObjectCollision enemies player
-      when(col5)(do 
-                 setGameState (Level 1)
-                 setNewLevel 1)
-      
-
       --UI
       showFPS TimesRoman24 (w-24, h-28) 1.0 0.0 0.0
       printOnScreen ("Ammo Remaining: " ++ show a) TimesRoman24 (0,0) 1.0 1.0 1.0
       printOnScreen ("Enemies Remaining: " ++ show e) TimesRoman24 (0,h-25) 1.0 1.0 1.0
       
-
-
-
 
 
 
