@@ -15,14 +15,16 @@ module Main where
     --SpaceInvader
     type SpaceInvader = GameObject ()
     type InvaderAction a = IOGame GameAttribute () GameState TileAttribute a
-    rows = 3
+    rows = 4
     columns = 5
     invaderYSpeed = (-0.5)
     invaderXSpeed = 4
-    enemy1amount = 10
-    enemy2amount = 15
-    enemy1delay = 2.0
-    enemy2delay = 1.5
+    enemy1Amount = 64
+    enemy1Delay = 1.0
+    enemy1Speed = -6.0
+    enemy2Amount = 72
+    enemy2Delay = 0.8
+    enemy2Speed = 4.0
     
     --EnemiesLeft AmmoLeft TravelDirection JumpPressed T1EnemiesLeft T2EnemiesLeft
     data GameAttribute = GA Int Int Double Bool Int Int
@@ -34,8 +36,8 @@ module Main where
     type PLCGameMap = TileMatrix TileAttribute
 
     --Player Settings
-    moveSpeed = 5
-    jumpVelocity = 15
+    moveSpeed = 10
+    jumpVelocity = 20
     pSqSize = 12
     bulletSpeed = 15
     maxAmmo = 100
@@ -85,21 +87,21 @@ module Main where
                     (objectGroup "enemy2Group"     createEnemiesT2 ),
                     (objectGroup "helperGroup"      [createHelper] )]
 
-          initAttributes = GA (rows * ((columns*2)-1) ) maxAmmo 1.0 False enemy1amount enemy2amount
+          initAttributes = GA (rows * ((columns*2)-1) ) maxAmmo 1.0 False enemy1Amount enemy2Amount
 
           input = [
-            (SpecialKey KeyRight,  StillDown, movePlayerRight)
-            ,(SpecialKey KeyLeft,  StillDown, movePlayerLeft)
-            ,(Char ' ',            Press, playerJump)
-            ,(Char 'z',            Press, spawnBullet)
-            ,(Char '\'',            Press,     \_ _ -> funExit)
+            (SpecialKey KeyRight,   StillDown, movePlayerRight)
+            ,(SpecialKey KeyLeft,    StillDown, movePlayerLeft)
+            ,(SpecialKey KeyUp,              Press, playerJump)
+            ,(SpecialKey KeyDown,            Press, playerFall)
+            ,(Char 'z',                     Press, spawnBullet)
+            ,(Char 'q',                 Press, \_ _ -> funExit)
             ]
       
       sem1 <- newMVar False
       sem2 <- newMVar False
-      forkIO(wakePeriodically sem1 enemy1delay)
-      forkIO(wakePeriodically sem2 enemy2delay)
-      funInit winConfig gameMap groups (Level 1) initAttributes input (gameCycle sem1 sem2) (Timer frameTime) bmpList
+      threadKiller <- newMVar 0
+      funInit winConfig gameMap groups (Level 1) initAttributes input (gameCycle sem1 sem2 threadKiller) (Timer frameTime) bmpList
 
     --Player Functions
     
@@ -118,10 +120,9 @@ module Main where
     playerDefaultCol :: PlayerAction ()
     playerDefaultCol = do
       player <- findObject "player" "playerGroup"
-      playerPos <- getObjectPosition player
-      tile <- getTileFromWindowPosition playerPos
-      (vX, vY) <- getObjectSpeed player
       (pX, pY) <- getObjectPosition player
+      tile <- getTileFromWindowPosition (pX, pY - pSqSize)
+      (vX, vY) <- getObjectSpeed player
       (GA e a t b et1 et2) <- getGameAttribute
       when(getTileBlocked tile) (do 
         setObjectPosition (pX, tileSize) player
@@ -134,26 +135,24 @@ module Main where
      
     --Detecta colisao com os inimigos e o player
     --caso um inimigo atinja o player, voltar para o nivel 1 e resetar tudo  
-    playerEnemyColision :: PlayerAction() 
-    playerEnemyColision = do
+    playerEnemyCollision :: MVar Int -> PlayerAction() 
+    playerEnemyCollision threadKiller = do
       player <- findObject "player" "playerGroup"
+      
       enemies <- getObjectsFromGroup "enemy1Group"
-
-      col <- objectListObjectCollision enemies player
-      when(col) (do 
-                setGameState(Level 1)
-                setNewLevel 1)
-
+      col1 <- objectListObjectCollision enemies player
+      
       enemies <- getObjectsFromGroup "enemy2Group"
-      col <- objectListObjectCollision enemies player
-      when(col) (do 
+      col2 <- objectListObjectCollision enemies player
+      when(col1 || col2) (do 
+                killThreads threadKiller
                 setGameState(Level 1)
                 setNewLevel 1)
 
-    checkPlayerCollisions :: PlayerAction ()
-    checkPlayerCollisions = do
-      playerEnemyColision
-      playerDefaultCol            
+    checkPlayerCollisions :: MVar Int -> PlayerAction ()
+    checkPlayerCollisions threadKiller = do
+      playerEnemyCollision threadKiller
+      playerDefaultCol
 
 
     --Player IO
@@ -167,8 +166,8 @@ module Main where
      (pX,pY) <- getObjectPosition obj
      (sX,_)  <- getObjectSize obj
      (GA e a t b et1 et2) <- getGameAttribute
-     setGameAttribute(GA e a 1.0 b et1 et2)--atualiza a travel direction para -1
-     if (pX + (sX/2) + 5 <= w)
+     setGameAttribute(GA e a 1.0 b et1 et2)--atualiza a travel direction para 1
+     if (pX + (sX/2) + moveSpeed <= w)
       then (setObjectPosition ((pX + moveSpeed),pY) obj)
       else (setObjectPosition ((w - (sX/2)),pY) obj)
 
@@ -183,7 +182,7 @@ module Main where
       (GA e a t b et1 et2) <- getGameAttribute
       setGameAttribute(GA e a (-1.0) b et1 et2)--atualiza a travel direction para -1
       if (pX - (sX/2) - moveSpeed >= 0)
-       then (setObjectPosition ((pX - 5),pY) obj)
+       then (setObjectPosition ((pX - moveSpeed),pY) obj)
        else (setObjectPosition (sX/2,pY) obj)
     
     --Dá velocidade vertical ao jogador caso ele nao esteja pulando
@@ -199,7 +198,17 @@ module Main where
           )
         else return()
 
-
+    --Faz o jogador cair rapidamente
+    playerFall :: Modifiers -> Position -> IOGame GameAttribute () GameState TileAttribute ()
+    playerFall _ _ = do
+       player <- findObject "player" "playerGroup"
+       (vX, vY) <- getObjectSpeed player
+       (GA e a t b et1 et2) <- getGameAttribute
+       if(b)
+        then (do 
+          setObjectSpeed(vX, -jumpVelocity) player
+          )
+        else return()
 
     --Player Ammo
 
@@ -243,7 +252,6 @@ module Main where
           then (checkBulletCollision bullet xs)
           else return()
 
-    --Precisa de threads
     checkAllBulletsCollision :: [PlayerBullet] -> PlayerAction ()
     checkAllBulletsCollision (b:bs)
      | (length bs == 0) = do
@@ -354,25 +362,48 @@ module Main where
 
     --Enemies
 
-    wakePeriodically :: MVar Bool -> Double -> IO()
-    wakePeriodically sem avg = do
-        gen <- getStdGen
-        (rand, _) <- return(randomR (-0.5 :: Double, 0.5 :: Double) gen)
-        threadDelay ((round (avg + rand) * 1000000))
+    killThreads :: MVar Int -> PlayerAction()
+    killThreads threadKiller = do
+        state <- getGameState
+        case state of
+            Level n -> case n of
+                       1 -> return()
+                       2 -> liftIOtoIOGame $ modifyMVar_ threadKiller (\x -> return(x+2))
+                       3 -> liftIOtoIOGame $ modifyMVar_ threadKiller (\x -> return(x+4))
+    
+    delayedStartup :: IO() -> IO()
+    delayedStartup f = do
+        threadDelay 500000
+        f
+    
+    wakePeriodically :: MVar Bool -> MVar Int -> Double -> IO()
+    wakePeriodically sem threadKiller avg = do
         modifyMVar_ sem (\b -> return(True))
-        wakePeriodically sem avg
+        gen <- getStdGen
+        (rand, newgen) <- return(randomR (-avg*2/3,avg/4) gen)
+        setStdGen newgen
+        threadDelay ((round (avg + rand) * 1000000))
+        i <- readMVar threadKiller
+        if(0<i)
+        then (do
+            modifyMVar_ threadKiller (\x -> return(x-1))
+            return()
+            )
+        else (do
+            wakePeriodically sem threadKiller avg
+            )
 
     
     --Enemy1
     createEnemyT1 :: String -> SpaceInvader
     createEnemyT1 name =
-        let invaderBounds = [(-pSqSize,-pSqSize),(pSqSize*2.5,-pSqSize),(pSqSize*2.5,pSqSize),(-pSqSize,pSqSize)]
+        let invaderBounds = [(-pSqSize,-pSqSize*1.5),(pSqSize*2.5,-pSqSize*1.5),(pSqSize*2.5,pSqSize),(-pSqSize,pSqSize)]
             invaderPoly   = Basic (Polyg invaderBounds 0.0 0.5 1.0 Filled)
-        in object name invaderPoly True (w+10, (pSqSize+30)) (-4.5,0) ()
+        in object name invaderPoly True (w+10, (pSqSize+30)) (enemy1Speed,0) ()
 
     createAsleepEnemies1 :: Int -> [SpaceInvader]
     createAsleepEnemies1 amount
-     | (amount >= enemy1amount) = []
+     | (amount >= enemy1Amount) = []
      | otherwise = do 
         let name = "enemy1" ++ show(amount)
         (createEnemyT1 (name)):createAsleepEnemies1(amount+1)    
@@ -384,7 +415,6 @@ module Main where
     spawnT1Enemy sem = do
       (GA e a t b et1 et2) <- getGameAttribute
       b <- liftIOtoIOGame(readMVar sem)
-      liftIOtoIOGame $ putStrLn(show b)
       when(b && 0 < et1) (do 
         enemy <- findObject ("enemy1" ++ show(et1 - 1)) "enemy1Group"
         setObjectAsleep False enemy
@@ -406,11 +436,11 @@ module Main where
     createEnemyT2 name =
         let invaderBounds = [(-pSqSize,-pSqSize),(pSqSize*2,-pSqSize),(pSqSize*2,pSqSize*3.5),(-pSqSize,pSqSize*3.5)]
             invaderPoly   = Basic (Polyg invaderBounds 1.0 0.0 1.0 Filled)
-        in object name invaderPoly True (-10, (pSqSize+30)) (2.5,0) ()
+        in object name invaderPoly True (-10, (pSqSize+30)) (enemy2Speed,0) ()
 
     createAsleepEnemies2 :: Int -> [SpaceInvader]
     createAsleepEnemies2 amount
-     | (amount >= enemy2amount) = []
+     | (amount >= enemy2Amount) = []
      | otherwise = do 
         let name = "enemy2" ++ show(amount)
         (createEnemyT2 (name)):createAsleepEnemies2(amount+1)    
@@ -465,11 +495,11 @@ module Main where
     resetLevelAttributes :: PlayerAction()
     resetLevelAttributes = do
        (GA e a t b et1 et2) <- getGameAttribute
-       setGameAttribute(GA 27 maxAmmo t b 10 15)
+       setGameAttribute(GA 36 maxAmmo t b enemy1Amount enemy2Amount)
 
     -- Game Cycle    
-    gameCycle :: MVar Bool -> MVar Bool -> PlayerAction ()
-    gameCycle sem1 sem2 = do 
+    gameCycle :: MVar Bool -> MVar Bool -> MVar Int -> PlayerAction ()
+    gameCycle sem1 sem2 threadKiller = do 
       --Gets
       bullets <- getObjectsFromGroup "bulletGroup"
       gState <- getGameState
@@ -482,7 +512,7 @@ module Main where
       
       --Collisions
       checkAllBulletsCollision bullets
-      checkPlayerCollisions
+      checkPlayerCollisions threadKiller
       checkInvadersBottomMapCol
 
       --Advance Level
@@ -490,12 +520,18 @@ module Main where
         then(do         
           case gState of
             Level n -> case n of
-                       1 -> do 
+                       1 -> (do 
                             setGameState (Level 2)
                             setNewLevel 2
-                       2 -> do 
+                            liftIOtoIOGame (forkIO (wakePeriodically sem1 threadKiller enemy1Delay))
+                            liftIOtoIOGame (forkIO (wakePeriodically sem2 threadKiller enemy1Delay))
+                            return())
+                       2 -> (do 
                             setGameState (Level 3)
                             setNewLevel 3
+                            liftIOtoIOGame (forkIO (wakePeriodically sem1 threadKiller enemy1Delay))
+                            liftIOtoIOGame (forkIO (wakePeriodically sem2 threadKiller enemy1Delay))
+                            return())
                        3 -> return())
         else return()
 
