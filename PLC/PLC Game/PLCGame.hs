@@ -2,6 +2,8 @@ module Main where
 
     import Graphics.UI.Fungen
     import Graphics.Rendering.OpenGL (GLdouble)
+    import Control.Concurrent
+    import Control.Concurrent.MVar
     import System.Random
 
     
@@ -15,10 +17,12 @@ module Main where
     type InvaderAction a = IOGame GameAttribute () GameState TileAttribute a
     rows = 3
     columns = 5
-    invaderYSpeed = (-0.3)
+    invaderYSpeed = (-0.5)
     invaderXSpeed = 4
-    enemy1Amount = 10
-    enemy2Amount = 15
+    enemy1amount = 10
+    enemy2amount = 15
+    enemy1delay = 2.0
+    enemy2delay = 1.5
     
     --EnemiesLeft AmmoLeft TravelDirection JumpPressed T1EnemiesLeft T2EnemiesLeft
     data GameAttribute = GA Int Int Double Bool Int Int
@@ -81,17 +85,21 @@ module Main where
                     (objectGroup "enemy2Group"     createEnemiesT2 ),
                     (objectGroup "helperGroup"      [createHelper] )]
 
-          initAttributes = GA (rows * ((columns*2)-1) ) maxAmmo 1.0 False enemy1Amount enemy2Amount
+          initAttributes = GA (rows * ((columns*2)-1) ) maxAmmo 1.0 False enemy1amount enemy2amount
 
           input = [
             (SpecialKey KeyRight,  StillDown, movePlayerRight)
             ,(SpecialKey KeyLeft,  StillDown, movePlayerLeft)
             ,(Char ' ',            Press, playerJump)
-            ,(Char 'q',            Press, spawnBullet)
-            ,(Char ''',            Press,     \_ _ -> funExit)
+            ,(Char 'z',            Press, spawnBullet)
+            ,(Char '\'',            Press,     \_ _ -> funExit)
             ]
-            
-      funInit winConfig gameMap groups (Level 1) initAttributes input (gameCycle 1) (Timer frameTime) bmpList
+      
+      sem1 <- newMVar False
+      sem2 <- newMVar False
+      forkIO(wakePeriodically sem1 enemy1delay)
+      forkIO(wakePeriodically sem2 enemy2delay)
+      funInit winConfig gameMap groups (Level 1) initAttributes input (gameCycle sem1 sem2) (Timer frameTime) bmpList
 
     --Player Functions
     
@@ -346,16 +354,25 @@ module Main where
 
     --Enemies
 
+    wakePeriodically :: MVar Bool -> Double -> IO()
+    wakePeriodically sem avg = do
+        gen <- getStdGen
+        (rand, _) <- return(randomR (-0.5 :: Double, 0.5 :: Double) gen)
+        threadDelay ((round (avg + rand) * 1000000))
+        modifyMVar_ sem (\b -> return(True))
+        wakePeriodically sem avg
+
+    
     --Enemy1
     createEnemyT1 :: String -> SpaceInvader
     createEnemyT1 name =
-        let invaderBounds = [(-pSqSize,-pSqSize),(pSqSize*2.5,-pSqSize),(pSqSize*2.5,pSqSize),(-pSqSize,pSqSize)] -- 'area' do quadrado
-            invaderPoly   = Basic (Polyg invaderBounds 0.0 0.5 1.0 Filled) -- gera a forma do player
-        in object name invaderPoly True (w+10, (pSqSize+30)) (-4.5,0) () -- inicializa o player com esta forma gerada
+        let invaderBounds = [(-pSqSize,-pSqSize),(pSqSize*2.5,-pSqSize),(pSqSize*2.5,pSqSize),(-pSqSize,pSqSize)]
+            invaderPoly   = Basic (Polyg invaderBounds 0.0 0.5 1.0 Filled)
+        in object name invaderPoly True (w+10, (pSqSize+30)) (-4.5,0) ()
 
     createAsleepEnemies1 :: Int -> [SpaceInvader]
     createAsleepEnemies1 amount
-     | (amount >= enemy1Amount) = []
+     | (amount >= enemy1amount) = []
      | otherwise = do 
         let name = "enemy1" ++ show(amount)
         (createEnemyT1 (name)):createAsleepEnemies1(amount+1)    
@@ -363,12 +380,17 @@ module Main where
     createEnemiesT1 :: [SpaceInvader]
     createEnemiesT1 = createAsleepEnemies1 0    
 
-    spawnT1Enemy :: InvaderAction ()
-    spawnT1Enemy = do
+    spawnT1Enemy :: MVar Bool -> InvaderAction ()
+    spawnT1Enemy sem = do
       (GA e a t b et1 et2) <- getGameAttribute
-      enemy <- findObject ("enemy1" ++ show(et1)) "enemy1Group"
-      setObjectAsleep False enemy
-      setGameAttribute (GA e a t b (et1 - 1) et2)
+      b <- liftIOtoIOGame(readMVar sem)
+      liftIOtoIOGame $ putStrLn(show b)
+      when(b && 0 < et1) (do 
+        enemy <- findObject ("enemy1" ++ show(et1 - 1)) "enemy1Group"
+        setObjectAsleep False enemy
+        setGameAttribute (GA e a t b (et1 - 1) et2)
+        liftIOtoIOGame (modifyMVar_ sem (\b -> return (False)))
+        )
 
     resetT1Enemies :: [SpaceInvader] -> InvaderAction ()
     resetT1Enemies [] = return ()
@@ -377,18 +399,18 @@ module Main where
       setObjectAsleep True x
       resetT1Enemies xs
         
-
+    
 
     --Enemy2
     createEnemyT2 :: String -> SpaceInvader
     createEnemyT2 name =
-        let invaderBounds = [(-pSqSize,-pSqSize),(pSqSize*2,-pSqSize),(pSqSize*2,pSqSize*3.5),(-pSqSize,pSqSize*3.5)] -- 'area' do quadrado
-            invaderPoly   = Basic (Polyg invaderBounds 1.0 0.0 1.0 Filled) -- gera a forma do player
-        in object name invaderPoly True (-10, (pSqSize+30)) (2.5,0) () -- inicializa o player com esta forma gerada
+        let invaderBounds = [(-pSqSize,-pSqSize),(pSqSize*2,-pSqSize),(pSqSize*2,pSqSize*3.5),(-pSqSize,pSqSize*3.5)]
+            invaderPoly   = Basic (Polyg invaderBounds 1.0 0.0 1.0 Filled)
+        in object name invaderPoly True (-10, (pSqSize+30)) (2.5,0) ()
 
     createAsleepEnemies2 :: Int -> [SpaceInvader]
     createAsleepEnemies2 amount
-     | (amount >= enemy2Amount) = []
+     | (amount >= enemy2amount) = []
      | otherwise = do 
         let name = "enemy2" ++ show(amount)
         (createEnemyT2 (name)):createAsleepEnemies2(amount+1)    
@@ -396,12 +418,16 @@ module Main where
     createEnemiesT2 :: [SpaceInvader]
     createEnemiesT2 = createAsleepEnemies2 0   
     
-    spawnT2Enemy :: InvaderAction ()
-    spawnT2Enemy = do
+    spawnT2Enemy :: MVar Bool -> InvaderAction ()
+    spawnT2Enemy sem = do
       (GA e a t b et1 et2) <- getGameAttribute
-      enemy <- findObject ("enemy2" ++ show(et1)) "enemy2Group"
-      setObjectAsleep False  enemy
-      setGameAttribute (GA e a t b et1 (et2 - 1) )
+      b <- liftIOtoIOGame(readMVar sem)
+      when(b && 0 < et2) (do 
+        enemy <- findObject ("enemy2" ++ show(et2 - 1)) "enemy2Group"
+        setObjectAsleep False enemy
+        setGameAttribute (GA e a t b et1 (et2 - 1))
+        liftIOtoIOGame (modifyMVar_ sem (\b -> return (False)))
+        )
 
     resetT2Enemies :: [SpaceInvader] -> InvaderAction ()
     resetT2Enemies [] = return ()
@@ -439,17 +465,19 @@ module Main where
     resetLevelAttributes :: PlayerAction()
     resetLevelAttributes = do
        (GA e a t b et1 et2) <- getGameAttribute
-       setGameAttribute(GA 27 maxAmmo t b et1 et2)
+       setGameAttribute(GA 27 maxAmmo t b 10 15)
 
     -- Game Cycle    
-    gameCycle :: Int -> PlayerAction ()
-    gameCycle _ = do 
+    gameCycle :: MVar Bool -> MVar Bool -> PlayerAction ()
+    gameCycle sem1 sem2 = do 
       --Gets
       bullets <- getObjectsFromGroup "bulletGroup"
       gState <- getGameState
       (GA e a t b et1 et2) <- getGameAttribute
 
       --Actions
+      spawnT1Enemy sem1
+      spawnT2Enemy sem2
       moveInvaders
       
       --Collisions
