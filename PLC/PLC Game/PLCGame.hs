@@ -387,6 +387,7 @@ module Main where
         if(0<i)
         then (do
             modifyMVar_ threadKiller (\x -> return(x-1))
+            modifyMVar_ sem (\b -> return(False))
             return()
             )
         else (do
