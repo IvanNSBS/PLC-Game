@@ -95,6 +95,7 @@ module Main where
             ,(SpecialKey KeyUp,              Press, playerJump)
             ,(SpecialKey KeyDown,            Press, playerFall)
             ,(Char 'z',                     Press, spawnBullet)
+            ,(Char 'x',                     Press, spawnBullet)
             ,(Char 'q',                 Press, \_ _ -> funExit)
             ]
       
@@ -533,7 +534,8 @@ module Main where
                             liftIOtoIOGame (forkIO (wakePeriodically sem1 threadKiller enemy1Delay))
                             liftIOtoIOGame (forkIO (wakePeriodically sem2 threadKiller enemy1Delay))
                             return())
-                       3 -> return())
+                       3 -> killThreads threadKiller
+					        return())
         else return()
 
       --UI
