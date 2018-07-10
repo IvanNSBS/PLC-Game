@@ -534,8 +534,12 @@ module Main where
                             liftIOtoIOGame (forkIO (wakePeriodically sem1 threadKiller enemy1Delay))
                             liftIOtoIOGame (forkIO (wakePeriodically sem2 threadKiller enemy1Delay))
                             return())
-                       3 -> killThreads threadKiller
-					        return())
+                       3 -> (do 
+                            killThreads threadKiller
+                            e1 <- getObjectsFromGroup "enemy1Group"
+                            e2 <- getObjectsFromGroup "enemy2Group"
+                            resetT1Enemies e1
+                            resetT2Enemies e2))
         else return()
 
       --UI
